@@ -2278,7 +2278,7 @@ bindPress(UI.els["btn-skillupg-toggle"], ()=>{
     },
     passiveName(p){
       if (!p) return "(미선택)";
-      return ({rebuild:"재건", resonance:"공명", overload:"과부화", overdrive:"오버드라이브"}[p]||p);
+      return ({rebuild:"재건", resonance:"공명", overload:"과부화", overdrive:"오버드라이브", rebirth:"부활"}[p]||p);
     },
 
     turretName(t){
@@ -2406,10 +2406,6 @@ bindPress(UI.els["btn-skillupg-toggle"], ()=>{
       if (s.passives.fromRebirth){
         const tag = " <span style=\"color:#fcd34d\">(80%)</span>";
         for (const t of targets){ if (t && !String(t.innerHTML).includes("(80%)")) t.innerHTML += tag; }
-      }
-      if (s.passives.rebirthTw){
-        const tag2 = " <span style=\"color:#a78bfa\">⏳+15%</span>";
-        for (const t of targets){ if (t && !String(t.innerHTML).includes("⏳+15%")) t.innerHTML += tag2; }
       }
     },
     
@@ -2874,7 +2870,6 @@ stackPanels(){
             {
         let pTxt = "패시브: "+UI.passiveName(s.passives.selected);
         if (s.passives.fromRebirth) pTxt += " (80%)";
-        if (s.passives.rebirthTw) pTxt += " ⏳+15%";
         UI.els["ui-passive"].textContent = pTxt;
       }
       UI.els["ui-passive-lock"].textContent=s.passives.locked?"🔒":"";
@@ -3484,7 +3479,6 @@ getEmergencyCfg(s){
         const _evR = Sim.eventInWave(s);
         const _gMul = (_evR && _evR.mods && typeof _evR.mods.resonanceGainMul === "number") ? _evR.mods.resonanceGainMul : 1.0;
         s.passives.resonance.gauge = clamp(s.passives.resonance.gauge + appliedTotal*CFG.resonance.gainPerDamage*_gMul*passiveMul(s), 0, CFG.resonance.max);
-      }
       }
       if (s.core.hp<=0.0001){
         s.core.hp=0;
@@ -4350,7 +4344,7 @@ aoe(s, cx,cy, r, dmg, skip=null){
       }
 
       if (p==="rebirth"){
-        s.ui.status = `부활: ${s.passives.rebirthUsed?"사용됨":"대기"} | 시간왜곡 ⏳+15% 유지`;
+        s.ui.status = `부활: ${s.passives.rebirthUsed?"사용됨":"대기"}`;
         s.ui.status2 = `발동 시 HP 45% / SH 25% / 무적 3.0초`;
       }
     },
