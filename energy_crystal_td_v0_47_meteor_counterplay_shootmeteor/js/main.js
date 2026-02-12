@@ -3480,6 +3480,10 @@ getEmergencyCfg(s){
         const _gMul = (_evR && _evR.mods && typeof _evR.mods.resonanceGainMul === "number") ? _evR.mods.resonanceGainMul : 1.0;
         s.passives.resonance.gauge = clamp(s.passives.resonance.gauge + appliedTotal*CFG.resonance.gainPerDamage*_gMul*passiveMul(s), 0, CFG.resonance.max);
       }
+      if (s.core.hp<=0.0001){
+        s.core.hp=0;
+        if (s.passives.rebirthSelected && !s.passives.rebirthUsed) triggerRewind(s);
+        else triggerGameOver(s);
       }
       if (s.core.hp<=0.0001){
         s.core.hp=0;
