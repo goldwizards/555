@@ -2407,6 +2407,10 @@ bindPress(UI.els["btn-skillupg-toggle"], ()=>{
         const tag = " <span style=\"color:#fcd34d\">(80%)</span>";
         for (const t of targets){ if (t && !String(t.innerHTML).includes("(80%)")) t.innerHTML += tag; }
       }
+      if (s.passives.rebirthTw){
+        const tag2 = " <span style=\"color:#a78bfa\">⏳+15%</span>";
+        for (const t of targets){ if (t && !String(t.innerHTML).includes("⏳+15%")) t.innerHTML += tag2; }
+      }
     },
     
 updateCoreUpgPanel(){
@@ -3481,6 +3485,11 @@ getEmergencyCfg(s){
         const _gMul = (_evR && _evR.mods && typeof _evR.mods.resonanceGainMul === "number") ? _evR.mods.resonanceGainMul : 1.0;
         s.passives.resonance.gauge = clamp(s.passives.resonance.gauge + appliedTotal*CFG.resonance.gainPerDamage*_gMul*passiveMul(s), 0, CFG.resonance.max);
       }
+      }
+      if (s.core.hp<=0.0001){
+        s.core.hp=0;
+        if (s.passives.rebirthSelected && !s.passives.rebirthUsed) triggerRewind(s);
+        else triggerGameOver(s);
       }
       if (s.core.hp<=0.0001){
         s.core.hp=0;
