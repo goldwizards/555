@@ -711,6 +711,53 @@ rebuild: { maxArmorHP: 15.0, maxArmorSH: 7.5, maxAtHpPct: 0.10, oocDelay: 4.0, o
     s.camera.shakeT = Math.max(s.camera.shakeT, t);
   }
 
+  function passiveMul(s){
+    return (s.passives && s.passives.fromRebirth) ? (s.passives.fromRebirthMul||0.8) : 1.0;
+  }
+
+  function twMul(s){
+    return (s.passives && s.passives.rebirthTw) ? 1.15 : 1.0;
+  }
+
+  function triggerRewind(s){
+    if (s.game.phase === "rewind") return;
+    s.passives.rebirthUsed = true;
+    s.game.phase = "rewind";
+    s.game.rewindT = 0;
+    s.game.rewindDur = 1.6;
+    s.skill.energyCannon.charging = false;
+    AudioSys.stopEnergyCharge();
+  }
+
+  function clearRebirthHazards(s){
+    s.entities.projectiles.length = 0;
+    s.entities.fx = s.entities.fx.filter(fx => fx.type !== "meteorWarn");
+  }
+
+  function finishRebirth(s){
+    s.core.destroyed = false;
+    s.core.hp = Math.max(1, s.core.hpMax * 0.45);
+    s.core.sh = Math.max(0, s.core.shMax * 0.25);
+    s.core.rebirthInvulT = 3.0;
+    s.core.shRegenLock = 0;
+    s.core.repairLock = 0;
+    s.coreBreak.active = false;
+    s.coreBreak.shards = [];
+    clearRebirthHazards(s);
+
+    const pool = ["rebuild","resonance","overload","overdrive"];
+    s.passives.selected = pool[(Math.random()*pool.length)|0];
+    s.passives.fromRebirth = true;
+    s.passives.fromRebirthMul = 0.8;
+
+    s.game.phase = "wave";
+    s.ui.status = "부활 발동! 3초 무적";
+    s.ui.status2 = "랜덤 패시브 효과 80% 적용";
+    UI.updatePassiveDesc();
+    UI.syncPassiveButtons();
+    AudioSys.sfx("timeWarp", 0.85);
+  }
+
   function triggerGameOver(s){
     if (s.game.phase === "gameover") return;
 
@@ -876,7 +923,9 @@ rebuild: { maxArmorHP: 15.0, maxArmorSH: 7.5, maxAtHpPct: 0.10, oocDelay: 4.0, o
           lastEventKey:null,
           // Preview for the next wave (UI)
           nextWavePreview:{ waveIndex:0, boss:false, final:false, event:null, enemyKinds:[] },
-          nextEventPreview:null
+          nextEventPreview:null,
+          rewindT:0,
+          rewindDur:1.6
         },
         resources: { crystals:220 },
         build: { turretType:"basic" },
@@ -897,10 +946,16 @@ rebuild: { maxArmorHP: 15.0, maxArmorSH: 7.5, maxAtHpPct: 0.10, oocDelay: 4.0, o
           shMaxLv: 0,
           shRegenLv: 0,
           repairUpgLv: 0,
-          emergencyUpgLv: 0
+          emergencyUpgLv: 0,
+          rebirthInvulT: 0
         },
         passives: {
           selected:null, locked:false,
+          rebirthSelected:false,
+          rebirthUsed:false,
+          rebirthTw:false,
+          fromRebirth:false,
+          fromRebirthMul:0.8,
           rebuild:{ emergencyT:0, emergencyCd:0 },
           resonance:{ gauge:0, pulseIcd:0 },
           overload:{ cd:0, burst:0, lastHpPct:1.0, chainExtIcd:0, chainEmergencyIcd:0 },
@@ -911,6 +966,7 @@ rebuild: { maxArmorHP: 15.0, maxArmorSH: 7.5, maxAtHpPct: 0.10, oocDelay: 4.0, o
         flames: [], flameSpawnAcc: 0,
         coreBreak: { active:false, t:0, shards:[] },
         camera: { shakeT:0, shakeMag:0 },
+        rewindFrames: { w:320, h:180, every:2, idx:0, count:0, tick:0, buf:[] },
         ui: { buildMode:true, turretRepairMode:false, turretRepairGlobalCd:0, hover:{x:0,y:0,active:false}, status:"", status2:"", toast:{t:0}, selectedTurretId:null, turretAuto:{on:false, mode:"lv"}, _prevWaiting:false }
       };
     }
@@ -1866,6 +1922,7 @@ rebuild: { maxArmorHP: 15.0, maxArmorSH: 7.5, maxAtHpPct: 0.10, oocDelay: 4.0, o
           ["resonance","공명"],
           ["overload","과부화"],
           ["overdrive","오버드라이브"],
+          ["rebirth","부활"],
         ];
         for (const [k,nm] of names){
           const c = document.createElement("span");
@@ -1906,6 +1963,13 @@ rebuild: { maxArmorHP: 15.0, maxArmorSH: 7.5, maxAtHpPct: 0.10, oocDelay: 4.0, o
             "• 코어 공격 적중 시 광역 피해 30% 추가\n"+
             "• 에너지포는 30% 광역피해를 입힘"
           )()},
+          {k:"rebirth", t:"부활", s:"코어 파괴 직전 시간 되감기 + 1회 부활", d:(()=>
+            "• 코어 파괴 직전 시간 되감기 연출 후 즉시 전투 복귀\n"+
+            "• 런당 1회 발동, 부활 시 HP 45% / SH 25% / 3초 무적\n"+
+            "• 부활 직후 적 투사체(운석 포함) 전부 제거\n"+
+            "• 부활 후 랜덤 패시브 자동 전환(효과 80%)\n"+
+            "• 시간왜곡 +15% 강화는 부활 후에도 유지"
+          )()},
         ];
 
         list.innerHTML = "";
@@ -1940,7 +2004,7 @@ rebuild: { maxArmorHP: 15.0, maxArmorSH: 7.5, maxAtHpPct: 0.10, oocDelay: 4.0, o
       for (const row of [...list.querySelectorAll(".uh-acc")]){
         const t = row.querySelector(".uh-acc-head .t");
         if (!t) continue;
-        const key = (t.textContent==="재건")?"rebuild":(t.textContent==="공명")?"resonance":(t.textContent==="과부화")?"overload":"overdrive";
+        const key = (t.textContent==="재건")?"rebuild":(t.textContent==="공명")?"resonance":(t.textContent==="과부화")?"overload":(t.textContent==="부활")?"rebirth":"overdrive";
         row.classList.toggle("active", s.passives.selected===key);
       }
     }
@@ -1968,7 +2032,7 @@ rebuild: { maxArmorHP: 15.0, maxArmorSH: 7.5, maxAtHpPct: 0.10, oocDelay: 4.0, o
         "ui-turretupg-dmg","ui-turretupg-aspd","ui-turretupg-range","ui-turretupg-special","ui-turretupg-hp",
         "ui-turretupg-cost","ui-turretupg-costA","ui-turretupg-costB","ui-turretupg-sellval","ui-turretupg-next",
         "btn-diff","btn-start",
-        "btn-passive-rebuild","btn-passive-resonance","btn-passive-overload","btn-passive-overdrive",
+        "btn-passive-rebuild","btn-passive-resonance","btn-passive-overload","btn-passive-overdrive","btn-passive-rebirth",
         "btn-wave","btn-speed","btn-pause","btn-build","btn-turretrepair","btn-passiveinfo","btn-repair","btn-emergency",
         "btn-turret-basic","btn-turret-slow","btn-turret-splash","ui-turret-info",
         "btn-skill-e","ui-skill-e-sub","ui-skill-e-ring","btn-skill-q","ui-skill-q-sub","ui-skill-q-ring","btn-skill-r","ui-skill-r-sub","ui-skill-r-ring",
@@ -2011,6 +2075,10 @@ rebuild: { maxArmorHP: 15.0, maxArmorSH: 7.5, maxAtHpPct: 0.10, oocDelay: 4.0, o
         const s=Core.state;
         if (s.passives.locked){ UI.toast("패시브는 런 시작 후 변경 불가(🔒)"); return; }
         s.passives.selected=p;
+        s.passives.fromRebirth = false;
+        s.passives.fromRebirthMul = 0.8;
+        s.passives.rebirthSelected = (p==="rebirth");
+        if (p==="rebirth") s.passives.rebirthTw = true;
         UI.toast("패시브 선택: "+UI.passiveName(p));
         UI.updatePassiveDesc();
         UI.syncPassiveButtons();
@@ -2019,6 +2087,7 @@ rebuild: { maxArmorHP: 15.0, maxArmorSH: 7.5, maxAtHpPct: 0.10, oocDelay: 4.0, o
       bindPress(UI.els["btn-passive-resonance"], ()=>setPassive("resonance"));
       bindPress(UI.els["btn-passive-overload"], ()=>setPassive("overload"));
       bindPress(UI.els["btn-passive-overdrive"], ()=>setPassive("overdrive"));
+      bindPress(UI.els["btn-passive-rebirth"], ()=>setPassive("rebirth"));
 
       bindPress(UI.els["btn-wave"], ()=>Core.nextWaveOrStart());
       bindPress(UI.els["btn-speed"], ()=>Core.toggleSpeed());
@@ -2287,7 +2356,7 @@ bindPress(UI.els["btn-skillupg-toggle"], ()=>{
 
     syncPassiveButtons(){
       const s=Core.state;
-      const map={rebuild:"btn-passive-rebuild", resonance:"btn-passive-resonance", overload:"btn-passive-overload", overdrive:"btn-passive-overdrive"};
+      const map={rebuild:"btn-passive-rebuild", resonance:"btn-passive-resonance", overload:"btn-passive-overload", overdrive:"btn-passive-overdrive", rebirth:"btn-passive-rebirth"};
       for (const k in map){
         const el=UI.els[map[k]];
         if (!el) continue;
@@ -2303,7 +2372,7 @@ bindPress(UI.els["btn-skillupg-toggle"], ()=>{
       ].filter(Boolean);
       const setText = (txt)=>{ for (const t of targets) t.textContent = txt; };
       const setHtml  = (html)=>{ for (const t of targets) t.innerHTML = html; };
-      if (!p){ setText("아직 선택되지 않았습니다. (메뉴에서 4종 중 1개 선택)"); return; }
+      if (!p){ setText("아직 선택되지 않았습니다. (메뉴에서 5종 중 1개 선택)"); return; }
       if (p==="rebuild"){
         setHtml("• HP 70%↓부터 피해 감소(10%→12%)<br/>"+
           "• 보호막이 깨질 때 짧은 '긴급 보강'(피해 -38%, 쿨 7s)<br/>"+
@@ -2327,6 +2396,16 @@ bindPress(UI.els["btn-skillupg-toggle"], ()=>{
           "• HP가 낮을수록 공격력/공속 증가 (HP 10% 이하 MAX)<br/>"+
           "• 코어 공격 적중 시 광역 피해 30% 추가<br/>"+
           "• 에너지포는 30% 광역피해를 입힘");
+      } else if (p==="rebirth"){
+        setHtml("• 코어 파괴 직전 시간 되감기 후 1회 부활<br/>"+
+          "• 부활 수치: HP 45% / SH 25% / 3.0초 무적<br/>"+
+          "• 부활 직후 적 투사체(운석 포함) 전부 삭제<br/>"+
+          "• 부활 후 랜덤 패시브 자동 전환(효과 80%)<br/>"+
+          "• 시간왜곡 강화 +15%는 런 끝까지 유지");
+      }
+      if (s.passives.fromRebirth){
+        const tag = " <span style=\"color:#fcd34d\">(80%)</span>";
+        for (const t of targets){ if (t && !String(t.innerHTML).includes("(80%)")) t.innerHTML += tag; }
       }
     },
     
@@ -2697,7 +2776,7 @@ stackPanels(){
       }
       UI.els["ui-crystals"].textContent=String(Math.floor(s.resources.crystals));
       UI.els["ui-wave"].textContent="Wave "+s.game.waveIndex;
-      let phaseLabel = ({menu:"메뉴",setup:"설치",wave:"전투",shop:"상점",gameover:"패배"}[s.game.phase]||s.game.phase);
+      let phaseLabel = ({menu:"메뉴",setup:"설치",wave:"전투",shop:"상점",rewind:"되감기",gameover:"패배"}[s.game.phase]||s.game.phase);
       if (s.game.phase==="wave"){
         const w=s.game.waveIndex;
         const boss=(w%5===0);
@@ -2788,7 +2867,12 @@ stackPanels(){
       if (UI.els["ui-gaugebar"]){ UI.els["ui-gaugebar"].style.width=(gRatio*100).toFixed(1)+"%"; }
       if (UI.els["ui-gaugenum"]){ UI.els["ui-gaugenum"].textContent=Math.round(gRatio*100)+"%"; }
 
-      UI.els["ui-passive"].textContent="패시브: "+UI.passiveName(s.passives.selected);
+            {
+        let pTxt = "패시브: "+UI.passiveName(s.passives.selected);
+        if (s.passives.fromRebirth) pTxt += " (80%)";
+        if (s.passives.rebirthTw) pTxt += " ⏳+15%";
+        UI.els["ui-passive"].textContent = pTxt;
+      }
       UI.els["ui-passive-lock"].textContent=s.passives.locked?"🔒":"";
       UI.syncPassiveButtons();
       UI.syncTurretButtons();
@@ -3021,15 +3105,25 @@ getTimeWarpCfg(s){
   const lv = clamp((s.skillUpg && s.skillUpg.warpLv)||0, 0, 3);
   const U = CFG.skillUpg && CFG.skillUpg.warp;
   const base = CFG.timeWarp;
-  if (!U) return base;
+  const mul = twMul(s);
+  if (!U){
+    return {
+      ...base,
+      durationSec: (base.durationSec||0) * mul,
+      radius: (base.radius||0) * mul,
+      moveSlowPct: (base.moveSlowPct||0) * mul,
+      atkSlowPct: (base.atkSlowPct||0) * mul,
+      bossEff: (base.bossEff||0) * mul
+    };
+  }
   return {
     ...base,
-    durationSec: U.dur[lv] ?? base.durationSec,
+    durationSec: (U.dur[lv] ?? base.durationSec) * mul,
     cooldownSec: U.cd[lv] ?? base.cooldownSec,
-    radius: U.radius[lv] ?? base.radius,
-    moveSlowPct: U.move[lv] ?? base.moveSlowPct,
-    atkSlowPct: U.atk[lv] ?? base.atkSlowPct,
-    bossEff: U.bossEff ?? base.bossEff,
+    radius: (U.radius[lv] ?? base.radius) * mul,
+    moveSlowPct: (U.move[lv] ?? base.moveSlowPct) * mul,
+    atkSlowPct: (U.atk[lv] ?? base.atkSlowPct) * mul,
+    bossEff: (U.bossEff ?? base.bossEff) * mul,
     // final upgrade bonus (Lv3 only)
     finalCdBoost: (lv>=3) ? (U.finalCdBoost||0) : 0
   };
@@ -3162,7 +3256,7 @@ getEmergencyCfg(s){
     resonancePulseDamage(s){
       const W = Math.max(1, s.game.waveIndex||1);
       const base = 60 + (s.core.shMax * 0.20);
-      return Math.floor(base * (1 + 0.01*W));
+      return Math.floor(base * (1 + 0.01*W) * passiveMul(s));
     },
 
     // Core armor upgrade levels map to absolute armor values via CFG.coreUpg.armorSteps.
@@ -3179,12 +3273,12 @@ getEmergencyCfg(s){
     // Core has baseline flat armor (applies always), plus optional "rebuild" passive scaling armor.
     getArmorHP(s){
       let a = (CFG.core.armorHP||0) + Sim.coreArmorBonus(s.core.armorHpLv||0);
-      if (s.passives.selected==="rebuild") a += CFG.rebuild.maxArmorHP * Sim.act70to10(s);
+      if (s.passives.selected==="rebuild") a += CFG.rebuild.maxArmorHP * Sim.act70to10(s) * passiveMul(s);
       return a;
     },
     getArmorSH(s){
       let a = (CFG.core.armorSH||0) + Sim.coreArmorBonus(s.core.armorShLv||0);
-      if (s.passives.selected==="rebuild") a += CFG.rebuild.maxArmorSH * Sim.act70to10(s);
+      if (s.passives.selected==="rebuild") a += CFG.rebuild.maxArmorSH * Sim.act70to10(s) * passiveMul(s);
       return a;
     },
 
@@ -3285,6 +3379,12 @@ getEmergencyCfg(s){
         return;
       }
 
+      // 부활 무적
+      if (raw>0 && (s.core.rebirthInvulT||0)>0){
+        s.entities.fx.push({type:"wallBlock", x:s.core.x, y:s.core.y, t:0.14});
+        return;
+      }
+
       // 방벽(Q): 1초 무적 (데미지만 차단, 디스럽터의 차단(수리/재생 차단)은 별도 처리라 그대로 적용됨)
       if (raw>0 && s.skill && s.skill.wall && (s.skill.wall.active||0)>0){
         const wCfg = Sim.getWallCfg(s);
@@ -3300,11 +3400,11 @@ getEmergencyCfg(s){
         const hpPct=Sim.getHpPct(s);
         if (hpPct<=0.70){
           const t=Sim.act70to10(s);
-          const dr=0.10 + 0.02*t; // 10% -> 12%
+          const dr=(0.10 + 0.02*t) * passiveMul(s); // 10% -> 12%
           raw *= (1 - dr);
         }
         const RB=s.passives.rebuild;
-        if (RB && (RB.emergencyT||0)>0){ raw *= (1 - 0.38); }
+        if (RB && (RB.emergencyT||0)>0){ raw *= (1 - 0.38*passiveMul(s)); }
       }
 
       const hpBefore = s.core.hp;
@@ -3379,10 +3479,14 @@ getEmergencyCfg(s){
         {
         const _evR = Sim.eventInWave(s);
         const _gMul = (_evR && _evR.mods && typeof _evR.mods.resonanceGainMul === "number") ? _evR.mods.resonanceGainMul : 1.0;
-        s.passives.resonance.gauge = clamp(s.passives.resonance.gauge + appliedTotal*CFG.resonance.gainPerDamage*_gMul, 0, CFG.resonance.max);
+        s.passives.resonance.gauge = clamp(s.passives.resonance.gauge + appliedTotal*CFG.resonance.gainPerDamage*_gMul*passiveMul(s), 0, CFG.resonance.max);
       }
       }
-      if (s.core.hp<=0.0001){ s.core.hp=0; triggerGameOver(s); }
+      if (s.core.hp<=0.0001){
+        s.core.hp=0;
+        if (s.passives.rebirthSelected && !s.passives.rebirthUsed) triggerRewind(s);
+        else triggerGameOver(s);
+      }
     },
 
     spawnEnemy(s, kind="normal"){
@@ -4027,7 +4131,7 @@ getEmergencyCfg(s){
       // Final boss: during Overload Burst, turrets deal +25% damage.
       if (src==="turret" && e.isFinalBoss){
         const burst = (s.passives.selected==="overload" && s.passives.overload && (s.passives.overload.burst||0)>0);
-        if (burst) dd *= 1.25;
+        if (burst) dd *= (1 + 0.25*passiveMul(s));
       }
 
       // Overload: mark stacks (max 5, 4s refresh) + marked target takes more turret damage
@@ -4035,7 +4139,7 @@ getEmergencyCfg(s){
         const stacks = (e.mark||0);
         if (stacks>0){
           const per = e.isBoss ? 0.015 : 0.03;
-          dd *= (1 + per*stacks);
+          dd *= (1 + per*stacks*passiveMul(s));
         }
         e.mark = Math.min(CFG.overload.markMax, stacks + 1);
         e.markT = CFG.overload.markRefresh;
@@ -4210,8 +4314,8 @@ aoe(s, cx,cy, r, dmg, skip=null){
 
       if (p==="resonance"){
         const g=s.passives.resonance.gauge;
-        const dmgB=(CFG.resonance.dmgBonusMax*(g/CFG.resonance.max))*100;
-        const aspB=(CFG.resonance.aspdBonusMax*(g/CFG.resonance.max))*100;
+        const dmgB=(CFG.resonance.dmgBonusMax*passiveMul(s)*(g/CFG.resonance.max))*100;
+        const aspB=(CFG.resonance.aspdBonusMax*passiveMul(s)*(g/CFG.resonance.max))*100;
         s.ui.status=`공명: 게이지 ${g.toFixed(0)}% | 포탑 피해 +${fmt1(dmgB)}% | 공속 +${fmt1(aspB)}%`;
         s.ui.status2=`100% 시 에너지 방출(AoE) | 보호막 재생정지: ${shLock>0?fmt1(shLock)+'s':'-'} | 수리 차단: ${repLock>0?fmt1(repLock)+'s':'-'}`;
       }
@@ -4219,8 +4323,8 @@ aoe(s, cx,cy, r, dmg, skip=null){
       if (p==="overload"){
         const act=Sim.act30to10(s);
         const O=s.passives.overload;
-        const dmgB=(CFG.overload.baseTurretDmgBonusMax*act)*100;
-        const aspB=(CFG.overload.baseTurretAspdBonusMax*act)*100;
+        const dmgB=(CFG.overload.baseTurretDmgBonusMax*act*passiveMul(s))*100;
+        const aspB=(CFG.overload.baseTurretAspdBonusMax*act*passiveMul(s))*100;
         const cd=O.cd>0?`${Math.ceil(O.cd)}s`:"READY";
         const burst=O.burst>0?`${fmt1(O.burst)}s`:"-";
         let bestMark=0; for (const e of s.entities.enemies) bestMark=Math.max(bestMark, e.mark|0);
@@ -4230,10 +4334,15 @@ aoe(s, cx,cy, r, dmg, skip=null){
 
       if (p==="overdrive"){
         const act=Sim.act70to10(s);
-        const dmgB=(CFG.overdrive.maxDmgBonus*act)*100;
-        const aspB=(CFG.overdrive.maxAspdBonus*act)*100;
+        const dmgB=(CFG.overdrive.maxDmgBonus*act*passiveMul(s))*100;
+        const aspB=(CFG.overdrive.maxAspdBonus*act*passiveMul(s))*100;
         s.ui.status=`오버드라이브: 활성도 ${Math.round(act*100)}% | 포탑 피해 +${fmt1(dmgB)}% | 공속 +${fmt1(aspB)}%`;
         s.ui.status2=`코어 자동 공격(상시) | 보호막 재생정지: ${shLock>0?fmt1(shLock)+'s':'-'} | 수리 차단: ${repLock>0?fmt1(repLock)+'s':'-'}`;
+      }
+
+      if (p==="rebirth"){
+        s.ui.status = `부활: ${s.passives.rebirthUsed?"사용됨":"대기"} | 시간왜곡 ⏳+15% 유지`;
+        s.ui.status2 = `발동 시 HP 45% / SH 25% / 무적 3.0초`;
       }
     },
 
@@ -4255,6 +4364,16 @@ aoe(s, cx,cy, r, dmg, skip=null){
       s.game.time += ds;
       if (s.game.phase!=="menu") s.passives.locked=true;
 
+      if ((s.core.rebirthInvulT||0)>0){
+        s.core.rebirthInvulT = Math.max(0, (s.core.rebirthInvulT||0) - ds);
+      }
+
+      if (s.game.phase==="rewind"){
+        s.game.rewindT = Math.min(s.game.rewindDur||1.6, (s.game.rewindT||0) + dt);
+        if (s.game.rewindT >= (s.game.rewindDur||1.6)) finishRebirth(s);
+        return;
+      }
+
       // ENDING: stop all gameplay, play a short core sealing cinematic before the clear overlay.
       if (s.game.phase==="ending"){
         s.game.overT += ds;
@@ -4265,7 +4384,7 @@ aoe(s, cx,cy, r, dmg, skip=null){
         // Keep meteor warning visuals synced with TimeWarp meteor slow.
         let dtFx = ds;
         if (fx.type==="meteorWarn" && s.skill && s.skill.timeWarp && (s.skill.timeWarp.active||0)>0){
-          dtFx = ds * 0.65;
+          dtFx = ds * (1 - 0.35*twMul(s));
         }
         fx.t -= dtFx;
       }
@@ -4302,7 +4421,7 @@ aoe(s, cx,cy, r, dmg, skip=null){
         // Keep meteor warning visuals synced with TimeWarp meteor slow.
         let dtFx = ds;
         if (fx.type==="meteorWarn" && s.skill && s.skill.timeWarp && (s.skill.timeWarp.active||0)>0){
-          dtFx = ds * 0.65;
+          dtFx = ds * (1 - 0.35*twMul(s));
         }
         fx.t -= dtFx;
       }
@@ -4424,16 +4543,16 @@ aoe(s, cx,cy, r, dmg, skip=null){
       }
 
       // overdrive core auto attack (max at 10%)
-      if (s.passives.selected==="overdrive" && !isProjTgt){
+      if (s.passives.selected==="overdrive"){
         const a=Sim.act100to10(s);
-        const dmgMul=1 + CFG.overdrive.maxDmgBonus*a;
-        const aspdMul=1 + CFG.overdrive.maxAspdBonus*a;
-        const sps=CFG.overdrive.baseShotsPerSec*aspdMul;
+        const dmgMul=1 + CFG.overdrive.maxDmgBonus*a*passiveMul(s);
+        const aspdMul=1 + CFG.overdrive.maxAspdBonus*a*passiveMul(s);
+        const sps=CFG.overdrive.baseShotsPerSec*aspdMul*passiveMul(s);
         s.passives.overdrive.shotCd -= ds;
         if (s.passives.overdrive.shotCd<=0){
           const target=Sim.nearestEnemy(s, s.core.x, s.core.y, CFG.overdrive.range);
           if (target){
-            Sim.fireProj(s, s.core.x, s.core.y, target.x, target.y, CFG.overdrive.baseDmg*dmgMul, 920, 0, 0, 0, "core");
+            Sim.fireProj(s, s.core.x, s.core.y, target.x, target.y, CFG.overdrive.baseDmg*dmgMul*passiveMul(s), 920, 0, 0, 0, "core");
             AudioSys.sfx("overdriveShot");
             s.passives.overdrive.shotCd = 1/Math.max(0.1, sps);
           } else s.passives.overdrive.shotCd=0.12;
@@ -5217,8 +5336,8 @@ if (sk.charging){
             if (s.passives.selected==="overload"){
               const O = s.passives.overload;
               const act = Sim.act30to10(s);
-              dmgMul *= (1 + (CFG.overload.baseTurretDmgBonusMax||0)*act);
-              aspdMul *= (1 + (CFG.overload.baseTurretAspdBonusMax||0)*act);
+              dmgMul *= (1 + (CFG.overload.baseTurretDmgBonusMax||0)*act*passiveMul(s));
+              aspdMul *= (1 + (CFG.overload.baseTurretAspdBonusMax||0)*act*passiveMul(s));
               if ((O.burst||0) > 0){ burstActive = true; pierce = (CFG.overload.piercePlus||0); }
             }
 
@@ -5288,7 +5407,7 @@ if (sk.charging){
         // TimeWarp: slow meteor fall speed (-35%) while TimeWarp is active (gives extra reaction time).
         let dsP = ds;
         if ((p.from==="enemyMeteor" || p.onHitFx==="meteorImpact") && s.skill && s.skill.timeWarp && (s.skill.timeWarp.active||0)>0){
-          dsP = ds * 0.65;
+          dsP = ds * (1 - 0.35*twMul(s));
         }
         p.life -= dsP;
         p.x += p.vx*dsP; p.y += p.vy*dsP;
@@ -5382,7 +5501,7 @@ if (sk.charging){
 
             // overdrive splash 30% on core shot hits
             if (s.passives.selected==="overdrive" && p.from==="core"){
-              Sim.aoe(s, e.x, e.y, CFG.overdrive.splashRadius, p.dmg*CFG.overdrive.splashPct, e);
+              Sim.aoe(s, e.x, e.y, CFG.overdrive.splashRadius, p.dmg*CFG.overdrive.splashPct*passiveMul(s), e);
               s.entities.fx.push({type:"expl", x:e.x,y:e.y,r:CFG.overdrive.splashRadius,t:0.18});
             }
 
@@ -5423,7 +5542,7 @@ if (sk.charging){
         // Keep meteor warning visuals synced with TimeWarp meteor slow.
         let dtFx = ds;
         if (fx.type==="meteorWarn" && s.skill && s.skill.timeWarp && (s.skill.timeWarp.active||0)>0){
-          dtFx = ds * 0.65;
+          dtFx = ds * (1 - 0.35*twMul(s));
         }
         fx.t -= dtFx;
       }
@@ -5563,6 +5682,55 @@ const Render = {
       for (let x=0;x<=CFG.LOGICAL_W;x+=120){ ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,CFG.LOGICAL_H); ctx.stroke(); }
       for (let y=0;y<=CFG.LOGICAL_H;y+=120){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(CFG.LOGICAL_W,y); ctx.stroke(); }
       ctx.restore();
+    },
+    captureWaveFrame(s){
+      const rf = s.rewindFrames;
+      if (!rf || s.game.phase!=="wave") return;
+      rf.tick = (rf.tick||0) + 1;
+      if ((rf.tick % (rf.every||2))!==0) return;
+      const w = rf.w||320, h = rf.h||180;
+      const nMax = Math.max(1, Math.floor((60*3)/(rf.every||2)));
+      if (!rf.buf || rf.buf.length!==nMax){
+        rf.buf = Array.from({length:nMax}, ()=>{ const c=document.createElement("canvas"); c.width=w; c.height=h; return c; });
+        rf.idx = 0;
+        rf.count = 0;
+      }
+      const c = rf.buf[rf.idx];
+      const cctx = c.getContext("2d");
+      cctx.clearRect(0,0,w,h);
+      cctx.drawImage(Render.ctx.canvas, 0, 0, Render.ctx.canvas.width, Render.ctx.canvas.height, 0, 0, w, h);
+      rf.idx = (rf.idx + 1) % rf.buf.length;
+      rf.count = Math.min(rf.buf.length, (rf.count||0) + 1);
+    },
+    drawRewind(s){
+      const ctx = Render.ctx;
+      const rf = s.rewindFrames;
+      Render.clear();
+      if (rf && (rf.count||0)>0){
+        const t = clamp((s.game.rewindT||0)/Math.max(0.001, s.game.rewindDur||1.6), 0, 1);
+        const rev = Math.floor(t * Math.max(0, (rf.count||1)-1));
+        const last = (rf.idx - 1 + rf.buf.length) % rf.buf.length;
+        const idx = (last - rev + rf.buf.length) % rf.buf.length;
+        const fr = rf.buf[idx];
+        if (fr) ctx.drawImage(fr, 0,0,fr.width,fr.height, 0,0, CFG.LOGICAL_W, CFG.LOGICAL_H);
+
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fillRect(0,0,CFG.LOGICAL_W,CFG.LOGICAL_H);
+        ctx.fillStyle = "rgba(235,240,250,0.95)";
+        ctx.font = "700 54px system-ui, sans-serif";
+        const tx = "시간 되감기...";
+        const tw = ctx.measureText(tx).width;
+        ctx.fillText(tx, CFG.LOGICAL_W*0.5 - tw*0.5, CFG.LOGICAL_H*0.28);
+
+        const bw=460,bh=14,bx=CFG.LOGICAL_W*0.5-bw*0.5,by=CFG.LOGICAL_H*0.28+26;
+        ctx.fillStyle = "rgba(148,163,184,0.35)";
+        ctx.fillRect(bx,by,bw,bh);
+        ctx.fillStyle = "rgba(196,181,253,0.9)";
+        ctx.fillRect(bx,by,bw*t,bh);
+        ctx.font = "16px system-ui, sans-serif";
+        ctx.fillStyle = "rgba(196,181,253,0.95)";
+        ctx.fillText("클릭/Space: 스킵", bx, by+34);
+      }
     },
     drawCore(s){
       const ctx=Render.ctx, x=s.core.x, y=s.core.y;
@@ -5734,6 +5902,7 @@ if (EC && EC.charging){
       ctx.restore();
     },
     draw(s){
+      if (s.game.phase==="rewind"){ Render.drawRewind(s); return; }
       Render.clear();
       const ctx=Render.ctx;
       // camera shake
@@ -6843,6 +7012,8 @@ ctx.restore();
         ctx.restore();
       }
 
+      if (s.game.phase==="wave") Render.captureWaveFrame(s);
+
       // ending cinematic overlay (after final boss is defeated)
       if (s.game.phase==="ending"){
         ctx.save();
@@ -7175,13 +7346,15 @@ ctx.restore();
       s.game.endingDur=0;
       s.game.endingT=0;
       s.game.stats = { leechStolen:0, meteorCalls:0, meteorImpacts:0 };
+      s.game.rewindT = 0;
+      s.game.rewindDur = 1.6;
       s.game.event={active:false, key:null, name:"", desc:"", mods:{}};
       s.game.lastEventKey=null;
       // reset core stats & upgrades
       s.core.destroyed=false;
       s.core.hpMax=CFG.core.hpMax; s.core.hp=s.core.hpMax;
       s.core.shMax=CFG.core.shMax; s.core.sh=s.core.shMax;
-      s.core.shRegenLock=0; s.core.repairLock=0;
+      s.core.shRegenLock=0; s.core.repairLock=0; s.core.rebirthInvulT=0;
       s.core.repairCd=0; s.core.emergencyCd=0;
       s.core.lastHitAt=-999;
       s.core.armorHpLv=0; s.core.armorShLv=0;
@@ -7192,6 +7365,11 @@ ctx.restore();
       s._waveHpDamaged=false;
 
       s.passives.resonance.gauge=0; s.passives.resonance.pulseIcd=0;
+      s.passives.rebirthSelected = (s.passives.selected==="rebirth");
+      s.passives.rebirthUsed = false;
+      s.passives.fromRebirth = false;
+      s.passives.fromRebirthMul = 0.8;
+      s.passives.rebirthTw = !!s.passives.rebirthSelected;
       if (s.passives.rebuild){ s.passives.rebuild.emergencyT=0; s.passives.rebuild.emergencyCd=0; }
       s.passives.overload.cd=0; s.passives.overload.burst=0; s.passives.overload.lastHpPct=1.0; s.passives.overload.chainExtIcd=0; s.passives.overload.chainEmergencyIcd=0;
       s.passives.overdrive.shotCd=0;
@@ -7207,7 +7385,9 @@ ctx.restore();
     },
 
     nextWaveOrStart(){
+
       const s=Core.state;
+      if (s.game.phase==="rewind") return;
       if (!s.game.running){ UI.toast("먼저 시작 버튼을 누르세요."); return; }
       if (s.game.phase==="setup" || s.game.phase==="shop"){
         if (s.game.waveIndex>=30){ UI.toast("이미 최종 웨이브를 클리어했습니다."); return; }
@@ -7556,6 +7736,7 @@ buySkillUpg(kind){
 
     repair(){
   const s=Core.state;
+  if (s.game.phase==="rewind") return;
   if (!s.game.running) return;
   if (s.game.phase==="menu" || s.game.phase==="gameover" || s.game.phase==="clear") return;
 
@@ -7610,6 +7791,7 @@ buySkillUpg(kind){
 
 emergencyShield(){
   const s=Core.state;
+  if (s.game.phase==="rewind") return;
   if (!s.game.running) return;
   if (s.game.phase==="menu" || s.game.phase==="gameover" || s.game.phase==="clear") return;
 
@@ -7645,8 +7827,8 @@ emergencyShield(){
 },
 
 useEnergyCannon(){
-
       const s=Core.state;
+      if (s.game.phase==="rewind") return;
       if (!s.game.running){ UI.toast("런 시작 후 사용 가능합니다."); return; }
       const sk=s.skill.energyCannon;
       const eCfg = Sim.getEnergyCfg(s);
@@ -7660,7 +7842,9 @@ useEnergyCannon(){
     },
 
     useWall(){
+
       const s=Core.state;
+      if (s.game.phase==="rewind") return;
       if (!s.game.running || s.game.phase!=="wave"){ UI.toast("전투 중에만 사용 가능합니다."); return; }
       const W=s.skill.wall;
       const wCfg = Sim.getWallCfg(s);
@@ -7679,7 +7863,9 @@ useEnergyCannon(){
     },
 
     useTimeWarp(){
+
       const s=Core.state;
+      if (s.game.phase==="rewind") return;
       if (!s.game.running || s.game.phase!=="wave"){ UI.toast("전투 중에만 사용 가능합니다."); return; }
       const T=s.skill.timeWarp;
       const tCfg = Sim.getTimeWarpCfg(s);
@@ -7701,6 +7887,12 @@ useEnergyCannon(){
 
       // During ending/clear/gameover we ignore all gameplay inputs (DOM restart button still works).
       if (s.game.phase==="ending" || s.game.phase==="clear" || s.game.phase==="gameover") return;
+      if (s.game.phase==="rewind"){
+        if (Input.consumeJustPressed() || Input.isKey(" ")){
+          s.game.rewindT = s.game.rewindDur||1.6;
+        }
+        return;
+      }
 
       if (Input.consumeJustPressed()){
         if (s.game.running && (s.game.phase==="setup"||s.game.phase==="shop"||s.game.phase==="wave")){
