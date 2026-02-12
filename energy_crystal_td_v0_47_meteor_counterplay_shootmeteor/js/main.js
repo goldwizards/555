@@ -3491,6 +3491,11 @@ getEmergencyCfg(s){
         if (s.passives.rebirthSelected && !s.passives.rebirthUsed) triggerRewind(s);
         else triggerGameOver(s);
       }
+      if (s.core.hp<=0.0001){
+        s.core.hp=0;
+        if (s.passives.rebirthSelected && !s.passives.rebirthUsed) triggerRewind(s);
+        else triggerGameOver(s);
+      }
     },
 
     spawnEnemy(s, kind="normal"){
@@ -4547,7 +4552,7 @@ aoe(s, cx,cy, r, dmg, skip=null){
       }
 
       // overdrive core auto attack (max at 10%)
-      if (s.passives.selected==="overdrive" && !isProjTgt){
+      if (s.passives.selected==="overdrive"){
         const a=Sim.act100to10(s);
         const dmgMul=1 + CFG.overdrive.maxDmgBonus*a*passiveMul(s);
         const aspdMul=1 + CFG.overdrive.maxAspdBonus*a*passiveMul(s);
