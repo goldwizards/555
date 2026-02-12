@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>에너지 수정타워 디펜스 (재시작 v0.47)</title>
+  <link rel="stylesheet" href="./css/app.css?v=0.47e" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="game" aria-label="Game Canvas"></canvas>
+
+    <div id="hud">
+      <div id="topbar" class="panel">
+        <div class="row">
+          <div class="left">
+            <div class="chip">✦ <span id="ui-crystals">0</span></div>
+            <div class="chip"><span id="ui-wave">Wave 0</span> · <span id="ui-phase">메뉴</span> · <span id="ui-diff">노말</span></div>
+            <div class="chip chip-passive"><span id="ui-passive">패시브: (미선택)</span> <span class="lock" id="ui-passive-lock"></span></div>
+            <div class="chip chip-event" id="ui-event-chip" style="display:none;" title="">
+              <span>이벤트: </span><span id="ui-event-name"></span><span class="evdesc" id="ui-event-desc"></span>
+            </div>
+            <div class="chip chip-next" id="ui-next-chip" style="display:none;" title="">
+              <span id="ui-next-wave"></span>
+            </div>
+          </div>
+          <div class="right">
+            <div class="chip">방어 <span id="ui-armor-hp">0</span></div>
+            <div class="chip">보호막방어 <span id="ui-armor-sh">0</span></div>
+            <div class="chip"><span id="ui-speed">1.0x</span></div>
+            <div class="chip chip-audio">
+              <button class="mini" id="btn-music" title="배경음악">🎵</button>
+              <button class="mini" id="btn-sfx" title="효과음">🔊</button>
+              <input id="vol-master" class="vol" type="range" min="0" max="1" step="0.01" value="0.85" />
+            </div>
+          </div>
+        </div>
+
+        <div class="bars">
+          <div class="barline">
+            <div class="barlabel">HP</div>
+            <div class="bar"><div id="ui-hpbar" class="fill hp"></div></div>
+            <div class="barnum" id="ui-hpnum">0/0</div>
+          </div>
+          <div class="barline">
+            <div class="barlabel">SH</div>
+            <div class="bar"><div id="ui-shbar" class="fill sh"></div></div>
+            <div class="barnum" id="ui-shnum">0/0</div>
+          </div>
+
+          
+          <div class="barline">
+            <div class="barlabel">GE</div>
+            <div class="bar"><div id="ui-gaugebar" class="fill gauge"></div></div>
+            <div class="barnum" id="ui-gaugenum">0%</div>
+          </div>
+
+<div class="statusline" id="ui-statusline">상태: -</div>
+          <div class="statusline subtle" id="ui-statusline2"></div>
+          <div class="statusline subtle" id="ui-nextline"></div>
+        </div>
+      </div>
+
+      <!-- Final Boss HUD (top-center, separate) -->
+      <div id="finalBossHud" class="panel" style="display:none;">
+        <div class="fbrow">
+          <div class="fbtitle">FINAL</div>
+          <div class="fbbar"><div id="ui-fbhpbar" class="fill fb"></div></div>
+          <div class="fbnum" id="ui-fbhpnum">0/0</div>
+          <div class="fbphase" id="ui-fbphase">P1/3</div>
+        </div>
+      </div>
+
+
+      <div id="effectCard" class="panel">
+        <div class="titleRow">
+          <div class="title">패시브 효과</div>
+          <button class="mini" id="btn-effect-toggle" title="접기/펼치기">▾</button>
+        </div>
+        <div class="body" id="ui-passive-desc">
+          아직 선택되지 않았습니다. (메뉴에서 4종 중 1개 선택)
+        </div>
+      </div>
+      <div id="coreUpgCard" class="panel">
+        <div class="titleRow">
+          <div class="title">코어 업그레이드</div>
+          <button class="mini" id="btn-coreupg-toggle" title="접기/펼치기">▾</button>
+        </div>
+        <div class="body" id="ui-coreupg-body">
+          <div class="upgline">
+  <div class="upgname">HP 최대</div>
+  <div class="upgval">
+    <div class="upgmain"><span id="ui-coremax-hp-cur">420</span> → <span id="ui-coremax-hp-next">480</span></div>
+    <div class="upgsub subtle" id="ui-coremax-hp-sub">코어 최대 HP 증가</div>
+  </div>
+  <button class="btn small" id="btn-coremax-hp">업글 <span class="cost" id="ui-coremax-hp-cost">220</span></button>
+</div>
+<div class="upgline">
+  <div class="upgname">보호막 최대</div>
+  <div class="upgval">
+    <div class="upgmain"><span id="ui-coremax-sh-cur">300</span> → <span id="ui-coremax-sh-next">350</span></div>
+    <div class="upgsub subtle" id="ui-coremax-sh-sub">코어 최대 SH 증가</div>
+  </div>
+  <button class="btn small" id="btn-coremax-sh">업글 <span class="cost" id="ui-coremax-sh-cost">220</span></button>
+</div>
+
+<div class="upgline">
+  <div class="upgname">보호막 재생</div>
+  <div class="upgval">
+    <div class="upgmain"><span id="ui-coreshrg-cur">10</span>/s → <span id="ui-coreshrg-next">12</span>/s</div>
+    <div class="upgsub subtle" id="ui-coreshrg-sub">보호막 재생 속도 증가</div>
+  </div>
+  <button class="btn small" id="btn-coreshrg">업글 <span class="cost" id="ui-coreshrg-cost">200</span></button>
+</div>
+
+
+<div class="upgline">
+  <div class="upgname">수리 강화</div>
+  <div class="upgval">
+    <div class="upgmain"><span id="ui-corerepair-cur">HP +75</span> → <span id="ui-corerepair-next">HP +90</span></div>
+    <div class="upgsub subtle" id="ui-corerepair-sub">수리 회복/쿨타임 강화</div>
+  </div>
+  <button class="btn small" id="btn-corerepair">업글 <span class="cost" id="ui-corerepair-cost">140</span></button>
+</div>
+
+<div class="upgline">
+  <div class="upgname">긴급 보호막</div>
+  <div class="upgval">
+    <div class="upgmain"><span id="ui-coreem-cur">38%</span> → <span id="ui-coreem-next">42%</span></div>
+    <div class="upgsub subtle" id="ui-coreem-sub">회복량/쿨타임 강화</div>
+  </div>
+  <button class="btn small" id="btn-coreem">업글 <span class="cost" id="ui-coreem-cost">160</span></button>
+</div>
+
+          <div class="upgline">
+            <div class="upgname">HP 방어</div>
+            <div class="upgval">
+              <div class="upgmain"><span id="ui-coreupg-hp-cur">2</span> → <span id="ui-coreupg-hp-next">5</span></div>
+              <div class="upgsub subtle" id="ui-coreupg-hp-sub">코어가 받는 HP 피해 감소</div>
+            </div>
+            <button class="btn small" id="btn-coreupg-hp">업글 <span class="cost" id="ui-coreupg-hp-cost">280</span></button>
+          </div>
+          <div class="upgline">
+            <div class="upgname">보호막 방어</div>
+            <div class="upgval">
+              <div class="upgmain"><span id="ui-coreupg-sh-cur">2</span> → <span id="ui-coreupg-sh-next">5</span></div>
+              <div class="upgsub subtle" id="ui-coreupg-sh-sub">코어가 받는 보호막 피해 감소</div>
+            </div>
+            <button class="btn small" id="btn-coreupg-sh">업글 <span class="cost" id="ui-coreupg-sh-cost">280</span></button>
+          </div>
+          <div class="hint">※ 대기시간(설치/상점)에서만 업그레이드 가능</div>
+        </div>
+      </div>
+      
+<div id="skillUpgCard" class="panel">
+  <div class="titleRow">
+    <div class="title">스킬 업그레이드</div>
+    <button class="mini" id="btn-skillupg-toggle" title="접기/펼치기">▾</button>
+  </div>
+  <div class="body" id="ui-skillupg-body">
+    <div class="upgline">
+      <div class="upgname">E 에너지포</div>
+      <div class="upgval">
+        <div class="upgmain"><span id="ui-skillupg-e-cur">Lv0</span> → <span id="ui-skillupg-e-next">Lv1</span></div>
+        <div class="upgsub" id="ui-skillupg-e-sub">피해/쿨/충전 강화</div>
+      </div>
+      <button class="btn small" id="btn-skillupg-e">업글 <span class="cost" id="ui-skillupg-e-cost">260</span></button>
+    </div>
+    <div class="upgline">
+      <div class="upgname">Q 방벽</div>
+      <div class="upgval">
+        <div class="upgmain"><span id="ui-skillupg-q-cur">Lv0</span> → <span id="ui-skillupg-q-next">Lv1</span></div>
+        <div class="upgsub" id="ui-skillupg-q-sub">무적/쿨 강화</div>
+      </div>
+      <button class="btn small" id="btn-skillupg-q">업글 <span class="cost" id="ui-skillupg-q-cost">220</span></button>
+    </div>
+    <div class="upgline">
+      <div class="upgname">R 시간왜곡</div>
+      <div class="upgval">
+        <div class="upgmain"><span id="ui-skillupg-r-cur">Lv0</span> → <span id="ui-skillupg-r-next">Lv1</span></div>
+        <div class="upgsub" id="ui-skillupg-r-sub">지속/범위/둔화 강화</div>
+      </div>
+      <button class="btn small" id="btn-skillupg-r">업글 <span class="cost" id="ui-skillupg-r-cost">240</span></button>
+    </div>
+    <div class="hint">※ 대기시간(설치/상점)에서만 업그레이드 가능</div>
+  </div>
+</div>
+
+      <div id="turretUpgCard" class="panel">
+        <div class="titleRow">
+          <div class="title">포탑 업그레이드</div>
+          <button class="mini" id="btn-turretupg-toggle" title="접기/펼치기">▾</button>
+        </div>
+        <div class="body" id="ui-turretupg-body">
+          <div class="hint" id="ui-turretupg-hint">포탑을 탭하면 업그레이드/판매가 가능합니다. (대기시간에서만)</div>
+
+          <div id="ui-turretupg-detail" style="display:none;">
+            <div class="upgline">
+              <div class="upgname" id="ui-turretupg-name">-</div>
+              <div class="upgval"><span id="ui-turretupg-lv">Lv1</span> <span id="ui-turretupg-path"></span></div>
+              <button class="btn small" id="btn-turretupg-close">닫기</button>
+            </div>
+
+            <div class="statgrid">
+              <div class="stat"><span class="k">피해</span> <span class="v" id="ui-turretupg-dmg">0</span></div>
+              <div class="stat"><span class="k">공속</span> <span class="v" id="ui-turretupg-aspd">0</span></div>
+              <div class="stat"><span class="k">사거리</span> <span class="v" id="ui-turretupg-range">0</span></div>
+              <div class="stat"><span class="k">특수</span> <span class="v" id="ui-turretupg-special">-</span></div>
+              <div class="stat"><span class="k">내구</span> <span class="v" id="ui-turretupg-hp">0/0</span></div>
+            </div>
+
+            <div class="btnrow wrap" style="margin-top:8px;">
+              <button class="btn small" id="btn-turretupg-up">업글 <span class="cost" id="ui-turretupg-cost">0</span></button>
+              <button class="btn small" id="btn-turretupg-upA">A 업글 <span class="cost" id="ui-turretupg-costA">0</span></button>
+              <button class="btn small" id="btn-turretupg-upB">B 업글 <span class="cost" id="ui-turretupg-costB">0</span></button>
+              <button class="btn small danger" id="btn-turretupg-sell">판매 <span class="cost" id="ui-turretupg-sellval">0</span></button>
+            </div>
+            <div class="hint subtle" id="ui-turretupg-next"></div>
+          </div>
+        </div>
+      </div>
+
+
+
+
+      <div id="menupanel" class="panel">
+        <div class="title">메뉴</div>
+        <div class="body">
+          <div class="section">
+            <div class="label">난이도</div>
+            <div class="btnrow">
+              <button class="btn" id="btn-diff">노말</button>
+              <button class="btn" id="btn-start">시작</button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="label">패시브(런 시작 후 🔒 잠금)</div>
+            <div class="btnrow wrap">
+              <button class="btn" id="btn-passive-rebuild">재건</button>
+              <button class="btn" id="btn-passive-resonance">공명</button>
+              <button class="btn" id="btn-passive-overload">과부화</button>
+              <button class="btn" id="btn-passive-overdrive">오버드라이브</button>
+            </div>
+	            <div class="hint subtle" id="ui-passive-desc-menu" style="margin-top:6px; line-height:1.35;">
+	              패시브 효과를 선택하면 여기에서 설명을 확인할 수 있습니다.
+	            </div>
+          </div>
+
+          <div class="section">
+            <div class="label">조작</div>
+            <div class="hint">
+              - 클릭/터치: (테스트) 포탑 1개 설치 (크리스탈 소모)<br/>
+              - Space: 웨이브 시작/다음<br/>
+              - E: 에너지포(충전 3s → 발사, 쿨 40s)<br/>
+              - Q: 방벽(비용 50, 1s 무적, 전투 중)<br/>
+              - R: 시간왜곡(비용 40, 3.5s, 적 둔화/공속감소, 전투 중)<br/>
+              - P: 일시정지, 1~3: 배속 변경<br/>- Ctrl+Shift+C 또는 F2: 치트 패널
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="bottombar" class="panel">
+        <div class="row">
+          <div class="left">
+            <button class="btn" id="btn-wave">웨이브</button>
+            <button class="btn" id="btn-speed">배속</button>
+            <button class="btn" id="btn-pause">일시정지</button>
+                        <button class="btn" id="btn-build">빌드</button>
+            <button class="btn" id="btn-turretrepair" title="포탑을 클릭하여 풀수리합니다. 손상도가 클수록 비용이 증가합니다.">🔧포탑</button>
+            <button class="btn icon" id="btn-passiveinfo" title="패시브 설명">ⓘ</button>
+            <div class="turretpick">
+              <button class="btn turret" id="btn-turret-basic">기본</button>
+              <button class="btn turret" id="btn-turret-slow">슬로우</button>
+              <button class="btn turret" id="btn-turret-splash">스플</button>
+              <div id="ui-turret-info"></div>
+            </div>
+            <button class="btn" id="btn-repair">수리</button>
+            <button class="btn" id="btn-emergency" title="긴급 보호막(최대 SH의 38% 즉시 회복)">긴급</button>
+          </div>
+          <div class="right">
+                        <div class="skillbox">
+              <div class="skilllabel">스킬</div>
+
+              <button class="skillbtn" id="btn-skill-e" title="에너지포">
+                <span class="k">E</span>
+                <span class="name">에너지포</span>
+                <span class="sub" id="ui-skill-e-sub">READY</span>
+                <span class="ring" id="ui-skill-e-ring"></span>
+              </button>
+
+              <button class="skillbtn" id="btn-skill-q" title="방벽">
+                <span class="k">Q</span>
+                <span class="name">방벽</span>
+                <span class="sub" id="ui-skill-q-sub">READY</span>
+                <span class="ring" id="ui-skill-q-ring"></span>
+              </button>
+
+              <button class="skillbtn" id="btn-skill-r" title="시간왜곡">
+                <span class="k">R</span>
+                <span class="name">시간왜곡</span>
+                <span class="sub" id="ui-skill-r-sub">READY</span>
+                <span class="ring" id="ui-skill-r-ring"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Passive info popover (PC: Build 옆 ⓘ 버튼) -->
+      <div id="passivePop" class="panel passivepop hidden" role="dialog" aria-label="패시브 설명">
+        <div class="titleRow">
+          <div class="title">패시브 설명</div>
+          <button class="mini" id="btn-passivepop-close" title="닫기">✕</button>
+        </div>
+        <div class="body" id="ui-passive-desc-pop">아직 선택되지 않았습니다. (메뉴에서 4종 중 1개 선택)</div>
+      </div>
+
+      
+
+      <!-- Cheat panel (PC test) -->
+      <div id="cheatPanel" class="panel cheatpanel hidden" role="dialog" aria-label="치트">
+        <div class="titleRow">
+          <div class="title">치트</div>
+          <button class="mini" id="btn-cheat-close" title="닫기">✕</button>
+        </div>
+        <div class="cheatgrid">
+          <div class="cheatrow">
+            <span class="lbl">크리스탈</span>
+            <div class="btnrow wrap">
+              <button class="btn small" id="btn-cheat-1k">+1,000</button>
+              <button class="btn small" id="btn-cheat-10k">+10,000</button>
+              <button class="btn small" id="btn-cheat-max">99,999</button>
+              <button class="btn small" id="btn-cheat-inf">무한: OFF</button>
+            </div>
+          </div>
+          <div class="cheatrow">
+            <span class="lbl">웨이브</span>
+            <div class="inline">
+              <input id="cheatWave" type="number" min="1" max="30" value="30" />
+              <button class="btn small" id="btn-cheat-goto">이동</button>
+              <button class="btn small" id="btn-cheat-win">현재 웨이브 승리</button>
+            </div>
+          </div>
+          <div class="cheatrow">
+            <span class="lbl">스폰</span>
+            <div class="btnrow wrap">
+              <button class="btn small" id="btn-cheat-spawn-boss">보스 소환</button>
+              <button class="btn small" id="btn-cheat-spawn-final">최종보스 소환</button>
+            </div>
+          </div>
+          <div class="cheatrow">
+            <span class="lbl">기타</span>
+            <div class="btnrow wrap">
+              <button class="btn small" id="btn-cheat-kill">적 전부 처치</button>
+              <button class="btn small" id="btn-cheat-god">무적: OFF</button>
+              <button class="btn small" id="btn-cheat-speed1">×1</button>
+              <button class="btn small" id="btn-cheat-speed2">×2</button>
+              <button class="btn small" id="btn-cheat-speed4">×4</button>
+            </div>
+          </div>
+        </div>
+        <div class="hint">토글: Ctrl+Shift+C 또는 F2</div>
+      </div>
+
+      <div id="gameoverpanel" class="panel">
+        <button class="btn big" id="btn-restart-only">재시작</button>
+      </div>
+
+<div id="toast"></div>
+    </div>
+  </div>
+
+  <script src="./js/main.js?v=0.47g"></script>
+  <pre id="errbox"></pre>
+</body>
+</html>
